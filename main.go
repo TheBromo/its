@@ -5,9 +5,45 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"image"
+	"image/gif"
+	"image/png"
 	"io"
 	"os"
 )
+
+func loadGif(path string) []byte {
+	reader, err := os.Open(path)
+
+	img, err := gif.Decode(reader)
+	if err != nil {
+		panic(err)
+	}
+
+	buf := new(bytes.Buffer)
+	err = gif.Encode(buf, img, &gif.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	return buf.Bytes()
+}
+
+func loadPng(path string) []byte {
+	reader, err := os.Open(path)
+
+	img, _, err := image.Decode(reader)
+	if err != nil {
+		panic(err)
+	}
+
+	buf := new(bytes.Buffer)
+	err = png.Encode(buf, img)
+	if err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
 
 func main() {
 	secret := "my secret is the"
@@ -28,7 +64,13 @@ func main() {
 	cfb(secret, pngfile, giffile)
 	cbc(secret, pngfile, giffile)
 	gcm(secret, pngfile, giffile)
+	ecb(secret, pngfile, giffile)
+}
 
+func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
+	padding := blockSize - len(ciphertext)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(ciphertext, padtext...)
 }
 
 func ecb(secret string, pngfile, giffile []byte) {
@@ -36,8 +78,8 @@ func ecb(secret string, pngfile, giffile []byte) {
 	pngenc := EncryptECB(secret, pngfile)
 	gifenc := EncryptECB(secret, giffile)
 
-	os.WriteFile("tuxenc_gcm.png", pngenc, 0666)
-	os.WriteFile("tuxenc_gcm.gif", gifenc, 0666)
+	os.WriteFile("tuxenc_ecb.png", pngenc, 0666)
+	os.WriteFile("tuxenc_ecb.gif", gifenc, 0666)
 }
 
 func gcm(secret string, pngfile, giffile []byte) {
@@ -72,9 +114,27 @@ func cfb(secret string, pngfile, giffile []byte) {
 
 }
 
-func EncryptECB(secret string, giffile []byte) []byte {
+func EncryptECB(secret string, file []byte) []byte {
 	block, err := aes.NewCipher([]byte(secret))
-	panic("unimplemented")
+	if err != nil {
+		panic(err)
+	}
+
+	file = PKCS5Padding(file, block.BlockSize())
+
+	// The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext.
+	ciphertext := make([]byte, aes.BlockSize+len(file))
+
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		panic(err)
+	}
+
+	mode := newECBEncrypter(block)
+	mode.CryptBlocks(ciphertext[aes.BlockSize:], file)
+
+	return ciphertext
 }
 
 func EncryptGCM(secret string, file []byte) []byte {
@@ -120,12 +180,6 @@ func EncryptCBC(secret string, file []byte) []byte {
 	mode.CryptBlocks(ciphertext[aes.BlockSize:], file)
 
 	return ciphertext
-}
-
-func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
-	padding := blockSize - len(ciphertext)%blockSize
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(ciphertext, padtext...)
 }
 
 func EncryptCFB(secret string, value []byte, encryptor func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
