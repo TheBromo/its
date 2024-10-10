@@ -5,10 +5,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"fmt"
 	"image"
 	"image/gif"
 	"image/png"
 	"io"
+	"its/ecb"
 	"os"
 )
 
@@ -45,6 +47,16 @@ func loadPng(path string) []byte {
 	return buf.Bytes()
 }
 
+func savePng(path string, data []byte) {
+	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	finalContent := append(pngHeader, data...)
+	err := os.WriteFile(path, finalContent, 0644)
+	if err != nil {
+		fmt.Println("Error writing file:", err)
+		return
+	}
+}
+
 func main() {
 	secret := "my secret is the"
 
@@ -61,10 +73,11 @@ func main() {
 		println(err.Error())
 		return
 	}
+
 	cfb(secret, pngfile, giffile)
 	cbc(secret, pngfile, giffile)
 	gcm(secret, pngfile, giffile)
-	ecb(secret, pngfile, giffile)
+	ecbf(secret, pngfile, giffile)
 }
 
 func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
@@ -73,12 +86,12 @@ func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
 	return append(ciphertext, padtext...)
 }
 
-func ecb(secret string, pngfile, giffile []byte) {
+func ecbf(secret string, pngfile, giffile []byte) {
 
 	pngenc := EncryptECB(secret, pngfile)
 	gifenc := EncryptECB(secret, giffile)
 
-	os.WriteFile("tuxenc_ecb.png", pngenc, 0666)
+	savePng("tuxenc_ecb.png", pngenc)
 	os.WriteFile("tuxenc_ecb.gif", gifenc, 0666)
 }
 
@@ -87,7 +100,7 @@ func gcm(secret string, pngfile, giffile []byte) {
 	pngenc := EncryptGCM(secret, pngfile)
 	gifenc := EncryptGCM(secret, giffile)
 
-	os.WriteFile("tuxenc_gcm.png", pngenc, 0666)
+	savePng("tuxenc_ecb.png", pngenc)
 	os.WriteFile("tuxenc_gcm.gif", gifenc, 0666)
 }
 
@@ -96,7 +109,7 @@ func cbc(secret string, pngfile, giffile []byte) {
 	pngenc := EncryptCBC(secret, pngfile)
 	gifenc := EncryptCBC(secret, giffile)
 
-	os.WriteFile("tuxenc_cbc.png", pngenc, 0666)
+	savePng("tuxenc_ecb.png", pngenc)
 	os.WriteFile("tuxenc_cbc.gif", gifenc, 0666)
 }
 
@@ -109,7 +122,7 @@ func cfb(secret string, pngfile, giffile []byte) {
 		return
 	}
 
-	os.WriteFile("tuxenc_cfb.png", pngenc, 0666)
+	savePng("tuxenc_ecb.png", pngenc)
 	os.WriteFile("tuxenc_cfb.gif", gifenc, 0666)
 
 }
@@ -131,7 +144,7 @@ func EncryptECB(secret string, file []byte) []byte {
 		panic(err)
 	}
 
-	mode := newECBEncrypter(block)
+	mode := ecb.NewECBEncrypter(block)
 	mode.CryptBlocks(ciphertext[aes.BlockSize:], file)
 
 	return ciphertext
